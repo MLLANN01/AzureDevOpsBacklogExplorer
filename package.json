@@ -1,0 +1,244 @@
+{
+  "name": "azure-devops-backlog-explorer",
+  "displayName": "Azure DevOps Backlog Explorer",
+  "version": "0.1.0",
+  "description": "View and edit Azure DevOps backlog items in a hierarchical tree view",
+  "publisher": "MLLANN01",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "adoBacklogContainer",
+          "title": "Azure Devops",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "adoBacklogContainer": [
+        {
+          "id": "adoBacklog",
+          "name": "Backlog",
+          "canSelectMany": false
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "adoBacklog.refresh",
+        "title": "Refresh ADO Backlog",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "adoBacklog.search",
+        "title": "Search Work Items",
+        "icon": "$(search)"
+      },
+      {
+        "command": "adoBacklog.filterByIteration",
+        "title": "Filter by Iteration",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "adoBacklog.filterByTags",
+        "title": "Filter by Tags",
+        "icon": "$(tag)"
+      },
+      {
+        "command": "adoBacklog.filterByAssignedTo",
+        "title": "Filter by Assigned To",
+        "icon": "$(person)"
+      },
+      {
+        "command": "adoBacklog.clearFilters",
+        "title": "Clear All Filters",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "adoBacklog.createEpic",
+        "title": "Create New Epic"
+      },
+      {
+        "command": "adoBacklog.createFeature",
+        "title": "Create New Feature"
+      },
+      {
+        "command": "adoBacklog.createUserStory",
+        "title": "Create New User Story"
+      },
+      {
+        "command": "adoBacklog.createBug",
+        "title": "Create New Bug"
+      },
+      {
+        "command": "adoBacklog.openItem",
+        "title": "Open ADO Item"
+      },
+      {
+        "command": "adoBacklog.showTeamInfo",
+        "title": "Show Team Information"
+      },
+      {
+        "command": "adoBacklog.loadMore",
+        "title": "Load More Items"
+      },
+      {
+        "command": "adoBacklog.openInBrowser",
+        "title": "Open in Azure Devops"
+      },
+      {
+        "command": "adoBacklog.deleteItem",
+        "title": "Delete Work Item"
+      },
+      {
+        "command": "adoBacklog.changeState",
+        "title": "Change State"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "adoBacklog.search",
+          "when": "view == adoBacklog",
+          "group": "navigation@2"
+        },
+        {
+          "command": "adoBacklog.filterByIteration",
+          "when": "view == adoBacklog",
+          "group": "navigation@2"
+        },
+        {
+          "command": "adoBacklog.filterByTags",
+          "when": "view == adoBacklog",
+          "group": "navigation@3"
+        },
+        {
+          "command": "adoBacklog.filterByAssignedTo",
+          "when": "view == adoBacklog",
+          "group": "navigation@3"
+        },
+        {
+          "command": "adoBacklog.clearFilters",
+          "when": "view == adoBacklog",
+          "group": "navigation@5"
+        },
+        {
+          "command": "adoBacklog.refresh",
+          "when": "view == adoBacklog",
+          "group": "navigation@6"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "adoBacklog.createEpic",
+          "when": "view == adoBacklog && viewItem == areaPath",
+          "group": "0_create@1"
+        },
+        {
+          "command": "adoBacklog.createFeature",
+          "when": "view == adoBacklog && viewItem =~ /epic/",
+          "group": "0_create@1"
+        },
+        {
+          "command": "adoBacklog.createUserStory",
+          "when": "view == adoBacklog && viewItem =~ /feature/",
+          "group": "0_create@2"
+        },
+        {
+          "command": "adoBacklog.createBug",
+          "when": "view == adoBacklog && viewItem =~ /feature/",
+          "group": "0_create@2"
+        },
+        {
+          "command": "adoBacklog.openItem",
+          "when": "view == adoBacklog && viewItem =~ /workItem/",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "adoBacklog.openInBrowser",
+          "when": "view == adoBacklog && viewItem =~ /workItem/",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "adoBacklog.changeState",
+          "when": "view == adoBacklog && viewItem =~ /workItem/",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "adoBacklog.deleteItem",
+          "when": "view == adoBacklog && viewItem =~ /workItem/",
+          "group": "2_danger@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Azure DevOps Backlog",
+      "properties": {
+        "adoBacklog.organizationUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps organization URL (e.g., https://dev.azure.com/yourorg)"
+        },
+        "adoBacklog.personalAccessToken": {
+          "type": "string",
+          "default": "",
+          "description": "Personal Access Token for Azure DevOps API access"
+        },
+        "adoBacklog.project": {
+          "type": "string",
+          "default": "",
+          "description": "Azure DevOps project name"
+        },
+        "adoBacklog.areaPaths": {
+          "type": "array",
+          "default": [],
+          "description": "List of area paths to display (e.g., 'ProjectName\\Team\\SubTeam')",
+          "items": {
+            "type": "string"
+          }
+        },
+        "adoBacklog.defaultIterationPath": {
+          "type": "string",
+          "default": "",
+          "description": "Default iteration path for new work items (e.g., 'ProjectName\\Sprint 1')"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "echo \"No linter configured\"",
+    "test": "node ./out/test/runTest.js"
+  },
+  "keywords": [
+    "azure",
+    "devops",
+    "backlog",
+    "work items"
+  ],
+  "author": "MLLANN01",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/mocha": "^10.0.6",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.5.2",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "azure-devops-node-api": "^15.1.2"
+  }
+}
