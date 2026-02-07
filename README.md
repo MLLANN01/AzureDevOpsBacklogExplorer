@@ -1,46 +1,41 @@
 # Azure DevOps Backlog Explorer
 
-A VS Code extension for viewing and managing Azure DevOps backlog items directly from the editor. Browse your work item hierarchy, edit fields with a rich ADO-style panel, and stay in your flow without switching to the browser.
+Browse, edit, and manage your Azure DevOps backlog without leaving VS Code.
+
+![Azure DevOps Backlog Explorer in action](image.png)
 
 ## Features
 
-- **Hierarchical tree view** — Browse Epics > Features > User Stories / Bugs organized by area path
-- **Work item panel** — Open any item in an ADO-styled editor with inline title, color-coded type badges, rich text description/acceptance criteria, and tag management
-- **Create work items** — Right-click to create Epics, Features, User Stories, or Bugs with automatic parent linking
-- **Inline editing** — Edit title, state, iteration, assigned to, tags, description, and acceptance criteria without leaving VS Code
-- **Assigned To autocomplete** — Team members are eagerly loaded and available as type-ahead suggestions
-- **Rich text toolbar** — Bold, italic, headings, lists, links, tables, font color, highlighting, and more — all ADO-compatible
-- **Filtering** — Filter by search text / ID, iteration path, tags, or assigned person
-- **Drag and drop** — Reparent work items by dragging them in the tree
-- **Context actions** — Change state, delete, or open in browser from the right-click menu
+- **Hierarchical backlog tree** — Epics > Features > User Stories / Bugs, organized by area path right in the sidebar
+- **ADO-styled work item panels** — Color-coded type badges, inline title editing, rich text description and acceptance criteria
+- **Create work items** — Right-click any node to create Epics, Features, User Stories, or Bugs with automatic parent linking
+- **Full field editing** — Title, state, iteration, assigned to, tags, description, and acceptance criteria
+- **Assigned To autocomplete** — Team members load in the background and appear as suggestions as you type
+- **Rich text toolbar** — Bold, italic, headings, lists, links, tables, font color, and highlighting — all compatible with ADO's rich text format
+- **Powerful filtering** — Search by title or ID, filter by iteration path, tags, or assigned person
+- **Drag and drop** — Reparent work items by dragging them between nodes in the tree
+- **Quick actions** — Change state, delete, or jump to the Azure DevOps web UI from the context menu
 - **Team info** — View team members for any configured area path
 
-## Prerequisites
+## Getting Started
 
-- [VS Code](https://code.visualstudio.com/) v1.85.0 or later
-- An Azure DevOps organization with a project
+### Prerequisites
+
+- VS Code **v1.85.0** or later
+- An Azure DevOps organization and project
 - A [Personal Access Token (PAT)](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate) with **Work Items (Read & Write)** scope
 
-## Setup
+### Installation
 
-### 1. Install the extension
+Install from a `.vsix` file:
 
-**From VSIX (local build):**
+1. Download or build the `.vsix` (see [Building from source](#building-from-source) below)
+2. In VS Code: **Extensions** sidebar > `...` menu > **Install from VSIX...**
+3. Select the `.vsix` file and reload
 
-```bash
-npm install
-npm run compile
-npx @vscode/vsce package
-code --install-extension azure-devops-backlog-explorer-0.1.0.vsix
-```
+### Configuration
 
-**For development (Extension Development Host):**
-
-Press `F5` in VS Code to launch a new window with the extension loaded.
-
-### 2. Configure settings
-
-Open **Settings** (`Cmd+,` / `Ctrl+,`) and search for `adoBacklog`, or add to your `settings.json`:
+Open **Settings** (`Cmd+,` / `Ctrl+,`) and search for **adoBacklog**, or add directly to `settings.json`:
 
 ```jsonc
 {
@@ -55,48 +50,24 @@ Open **Settings** (`Cmd+,` / `Ctrl+,`) and search for `adoBacklog`, or add to yo
 }
 ```
 
-| Setting | Description |
-|---------|-------------|
-| `adoBacklog.organizationUrl` | Azure DevOps org URL (e.g. `https://dev.azure.com/yourorg`) |
-| `adoBacklog.personalAccessToken` | PAT with Work Items read/write access |
-| `adoBacklog.project` | Project name |
-| `adoBacklog.areaPaths` | Array of area paths to display in the tree |
-| `adoBacklog.defaultIterationPath` | Default iteration for newly created work items |
+| Setting | Required | Description |
+|---------|----------|-------------|
+| `organizationUrl` | Yes | Your Azure DevOps org URL |
+| `personalAccessToken` | Yes | PAT with Work Items read/write scope |
+| `project` | Yes | Project name |
+| `areaPaths` | Yes | Area paths to show in the tree (backslash-separated) |
+| `defaultIterationPath` | No | Default iteration assigned to new work items |
 
-### 3. Use the extension
+> All settings are prefixed with `adoBacklog.` (e.g. `adoBacklog.organizationUrl`).
 
-Click the Azure DevOps icon in the activity bar to open the Backlog panel. Your configured area paths appear as top-level nodes — expand them to browse Epics, Features, and child items.
+### Usage
 
-## Testing
+1. Click the **Azure DevOps** icon in the activity bar
+2. Expand an area path to browse Epics, Features, and child items
+3. Click any work item to open the detail panel
+4. Edit fields and hit the save icon in the header
 
-The project includes a basic integration test suite using the VS Code test framework.
-
-```bash
-# Compile and run tests
-npm run pretest
-npm test
-```
-
-Tests run in an Extension Development Host via `@vscode/test-electron`. The test entry point is `.vscode-test.mjs` and test files live in `src/test/`.
-
-To add tests, create files in `src/test/` following the existing pattern in `extension.test.ts`. Tests use the `mocha` suite/test style with Node's `assert` module.
-
-## Project Structure
-
-```
-src/
-  extension.ts            # Extension entry point, commands, webview panels
-  adoService.ts           # Azure DevOps API client, caching, CRUD operations
-  adoBacklogProvider.ts   # Tree data provider and drag-and-drop controller
-  test/
-    extension.test.ts     # Integration tests
-resources/
-  icon.svg                # Activity bar icon (Azure DevOps logo)
-```
-
-## Developing
-
-### Getting started
+## Building from Source
 
 ```bash
 git clone <repo-url>
@@ -105,45 +76,44 @@ npm install
 npm run compile
 ```
 
-Press `F5` to launch the Extension Development Host with the extension loaded. Use `npm run watch` for automatic recompilation on save.
-
-### Key files
-
-- **`adoService.ts`** — All Azure DevOps API interactions. Uses `azure-devops-node-api` with a 5-minute TTL cache. Add new API methods here.
-- **`adoBacklogProvider.ts`** — Implements `TreeDataProvider` and `TreeDragAndDropController` for the sidebar tree. Handles hierarchy, pagination, filtering, and drag-and-drop reparenting.
-- **`extension.ts`** — Registers commands, builds webview HTML for work item panels and team info. The `getWorkItemHtml()` function contains the full panel UI including styles and client-side JavaScript.
-
-### Adding a new feature
-
-1. **New API call** — Add a method to `AdoService` in `adoService.ts`. Use `getCached`/`setCache` for caching.
-2. **New tree node type** — Update `AdoBacklogProvider` in `adoBacklogProvider.ts` to return new `TreeItem` entries.
-3. **New command** — Register in `extension.ts` `activate()` and declare in `package.json` under `contributes.commands` and `contributes.menus`.
-4. **New work item panel field** — Add HTML in `getWorkItemHtml()`, handle in the `onDidReceiveMessage` callback, and include in the save payload.
-
-### Building a VSIX
+To package as a `.vsix`:
 
 ```bash
-npx @vscode/vsce package
+npx @vscode/vsce package --allow-missing-repository
 ```
 
-Optionally pass `--allow-missing-repository` if you haven't set a `repository` field in `package.json`.
+To run in development mode, press **F5** to launch an Extension Development Host. Use `npm run watch` for live recompilation.
+
+## Testing
+
+```bash
+npm test
+```
+
+Tests run in a VS Code Extension Development Host via `@vscode/test-electron`. Test files are in `src/test/` and use the Mocha `suite`/`test` pattern.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Make your changes and ensure `npm run compile` passes with no errors
-4. Add or update tests in `src/test/` for any new functionality
-5. Commit your changes with a descriptive message
-6. Push to your fork and open a Pull Request
+1. Fork the repo and create a feature branch
+2. Make your changes — ensure `npm run compile` passes cleanly
+3. Add or update tests in `src/test/` for new functionality
+4. Open a Pull Request with a clear description of the change
+
+### Architecture overview
+
+| File | Purpose |
+|------|---------|
+| `src/extension.ts` | Extension entry point, command registration, webview panel HTML |
+| `src/adoService.ts` | Azure DevOps API client with 5-min TTL caching |
+| `src/adoBacklogProvider.ts` | Tree data provider, drag-and-drop, filtering, pagination |
+| `resources/icon.svg` | Activity bar icon |
 
 ### Guidelines
 
-- Keep the ADO API interactions in `adoService.ts` — don't scatter API calls across files
-- Use the existing cache pattern (`getCached`/`setCache`) for any new API calls
-- Webview HTML is built as template literals in `extension.ts` — keep styles scoped within each panel's `<style>` block
-- Test against a real Azure DevOps project to verify API compatibility before submitting
-- Follow the existing code style — TypeScript strict mode, no unused variables
+- All ADO API calls go in `adoService.ts` — use the `getCached`/`setCache` pattern for caching
+- New commands must be registered in both `extension.ts` and `package.json` (`contributes.commands` + `contributes.menus`)
+- Webview styles are scoped inside each panel's `<style>` block
+- Test against a real Azure DevOps project before submitting
 
 ## License
 

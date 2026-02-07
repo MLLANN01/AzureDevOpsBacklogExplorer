@@ -182,7 +182,7 @@
       ]
     },
     "configuration": {
-      "title": "Azure DevOps Backlog",
+      "title": "Azure DevOps Backlog Explorer",
       "properties": {
         "adoBacklog.organizationUrl": {
           "type": "string",
