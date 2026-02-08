@@ -4,6 +4,11 @@
   "version": "0.1.0",
   "description": "View and edit Azure DevOps backlog items in a hierarchical tree view",
   "publisher": "MLLANN01",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MLLANN01/AzureDevOpsBacklogExplorer"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
