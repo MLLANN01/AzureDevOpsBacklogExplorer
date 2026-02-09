@@ -75,6 +75,18 @@ export class AdoService {
         return [];
     }
 
+    getCustomFieldNames(): string[] {
+        const config = vscode.workspace.getConfiguration('adoBacklog');
+        const customFields = config.get<any[]>('customFields') || [];
+        const names = new Set<string>();
+        for (const field of customFields) {
+            if (field.fieldReferenceName) {
+                names.add(field.fieldReferenceName);
+            }
+        }
+        return Array.from(names);
+    }
+
     async getEpicsForTeam(
         areaPathName: string,
         filters?: {
@@ -147,7 +159,8 @@ export class AdoService {
             'System.Id', 'System.Title', 'System.State',
             'System.WorkItemType',
             'System.AreaPath', 'System.IterationPath', 'System.AssignedTo',
-            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria'
+            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria',
+            ...this.getCustomFieldNames()
         ];
         const workItems = await witApi.getWorkItems(ids, fields, undefined, undefined);
 
@@ -239,7 +252,8 @@ export class AdoService {
             'System.Id', 'System.Title', 'System.State',
             'System.WorkItemType',
             'System.AreaPath', 'System.IterationPath', 'System.AssignedTo',
-            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria'
+            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria',
+            ...this.getCustomFieldNames()
         ];
         const workItems = await witApi.getWorkItems(childIds, fields, undefined, undefined);
 

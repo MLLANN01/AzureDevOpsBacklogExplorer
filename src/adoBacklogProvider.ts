@@ -15,7 +15,16 @@ class BacklogItem extends vscode.TreeItem {
         super(label, collapsibleState);
 
         this.tooltip = workItem ? `ID: ${workItem.id} - ${workItem.fields!['System.State']}` : label;
-        this.description = workItem ? `#${workItem.id}` : '';
+
+        if (workItem) {
+            const stateIndicatorList = vscode.workspace.getConfiguration('adoBacklog').get<{state: string, indicator: string}[]>('stateIndicators') || [];
+            const state = workItem.fields!['System.State'] || '';
+            const match = stateIndicatorList.find(s => s.state === state) || stateIndicatorList.find(s => s.state === '*');
+            const indicator = match?.indicator || '';
+            this.description = indicator ? `${indicator} #${workItem.id}` : `#${workItem.id}`;
+        } else {
+            this.description = '';
+        }
 
         if (type === 'team') {
             this.contextValue = 'areaPath';

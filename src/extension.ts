@@ -244,6 +244,9 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (!title) return;
 
+            const customFieldValues = await promptRequiredCustomFields('Epic');
+            if (customFieldValues === undefined) { return; }
+
             const areaPath = item.teamName || item.label;
             const config = vscode.workspace.getConfiguration('adoBacklog');
             const defaultIteration = config.get<string>('defaultIterationPath') || areaPath.split('\\')[0];
@@ -252,7 +255,8 @@ export function activate(context: vscode.ExtensionContext) {
                 const newEpic = await adoService.createWorkItem('Epic', {
                     'System.Title': title,
                     'System.AreaPath': areaPath,
-                    'System.IterationPath': defaultIteration
+                    'System.IterationPath': defaultIteration,
+                    ...customFieldValues
                 });
 
                 vscode.window.showInformationMessage(`Epic #${newEpic.id} created: ${title}`);
@@ -275,11 +279,15 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (!title) return;
 
+            const customFieldValues = await promptRequiredCustomFields('Feature');
+            if (customFieldValues === undefined) { return; }
+
             try {
                 const newFeature = await adoService.createWorkItem('Feature', {
                     'System.Title': title,
                     'System.AreaPath': item.workItem.fields['System.AreaPath'],
-                    'System.IterationPath': item.workItem.fields['System.IterationPath']
+                    'System.IterationPath': item.workItem.fields['System.IterationPath'],
+                    ...customFieldValues
                 }, item.workItem.id);
 
                 vscode.window.showInformationMessage(`Feature #${newFeature.id} created: ${title}`);
@@ -302,11 +310,15 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (!title) return;
 
+            const customFieldValues = await promptRequiredCustomFields('User Story');
+            if (customFieldValues === undefined) { return; }
+
             try {
                 const newStory = await adoService.createWorkItem('User Story', {
                     'System.Title': title,
                     'System.AreaPath': item.workItem.fields['System.AreaPath'],
-                    'System.IterationPath': item.workItem.fields['System.IterationPath']
+                    'System.IterationPath': item.workItem.fields['System.IterationPath'],
+                    ...customFieldValues
                 }, item.workItem.id);
 
                 vscode.window.showInformationMessage(`User Story #${newStory.id} created: ${title}`);
@@ -329,11 +341,15 @@ export function activate(context: vscode.ExtensionContext) {
 
             if (!title) return;
 
+            const customFieldValues = await promptRequiredCustomFields('Bug');
+            if (customFieldValues === undefined) { return; }
+
             try {
                 const newBug = await adoService.createWorkItem('Bug', {
                     'System.Title': title,
                     'System.AreaPath': item.workItem.fields['System.AreaPath'],
-                    'System.IterationPath': item.workItem.fields['System.IterationPath']
+                    'System.IterationPath': item.workItem.fields['System.IterationPath'],
+                    ...customFieldValues
                 }, item.workItem.id);
 
                 vscode.window.showInformationMessage(`Bug #${newBug.id} created: ${title}`);
@@ -341,6 +357,76 @@ export function activate(context: vscode.ExtensionContext) {
             } catch (error: any) {
                 vscode.window.showErrorMessage(`Failed to create Bug: ${error.message}`);
             }
+        })
+    );
+
+    // Manage Custom Fields
+    context.subscriptions.push(
+        vscode.commands.registerCommand('adoBacklog.manageCustomFields', () => {
+            const nonce = crypto.randomBytes(16).toString('base64');
+            const panel = vscode.window.createWebviewPanel(
+                'adoCustomFields',
+                'ADO: Manage Custom Fields',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            const config = vscode.workspace.getConfiguration('adoBacklog');
+            const customFields: CustomFieldConfig[] = config.get<CustomFieldConfig[]>('customFields') || [];
+
+            panel.webview.html = getManageCustomFieldsHtml(customFields, nonce);
+
+            panel.webview.onDidReceiveMessage(
+                async message => {
+                    if (message.command === 'saveFields') {
+                        await vscode.workspace.getConfiguration('adoBacklog').update(
+                            'customFields',
+                            message.fields,
+                            vscode.ConfigurationTarget.Global
+                        );
+                        vscode.window.showInformationMessage('Custom fields saved.');
+                        // Refresh the webview with updated data
+                        const updated = vscode.workspace.getConfiguration('adoBacklog').get<CustomFieldConfig[]>('customFields') || [];
+                        panel.webview.html = getManageCustomFieldsHtml(updated, crypto.randomBytes(16).toString('base64'));
+                    }
+                },
+                undefined,
+                context.subscriptions
+            );
+        })
+    );
+
+    // Configure State Indicators
+    context.subscriptions.push(
+        vscode.commands.registerCommand('adoBacklog.configureStateIndicators', () => {
+            const nonce = crypto.randomBytes(16).toString('base64');
+            const panel = vscode.window.createWebviewPanel(
+                'adoStateIndicators',
+                'ADO: Configure State Indicators',
+                vscode.ViewColumn.One,
+                { enableScripts: true }
+            );
+
+            const config = vscode.workspace.getConfiguration('adoBacklog');
+            const indicators: {state: string, indicator: string}[] = config.get('stateIndicators') || [];
+
+            panel.webview.html = getStateIndicatorsHtml(indicators, nonce);
+
+            panel.webview.onDidReceiveMessage(
+                async message => {
+                    if (message.command === 'saveIndicators') {
+                        await vscode.workspace.getConfiguration('adoBacklog').update(
+                            'stateIndicators',
+                            message.indicators,
+                            vscode.ConfigurationTarget.Global
+                        );
+                        vscode.window.showInformationMessage('State indicators saved.');
+                        backlogProvider.refreshImmediate();
+                    }
+                },
+                undefined,
+                context.subscriptions
+            );
         })
     );
 
@@ -360,11 +446,66 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
+async function promptRequiredCustomFields(workItemType: string): Promise<{ [key: string]: string } | undefined> {
+    const customFields = getCustomFieldsForType(workItemType).filter(f => f.required);
+    const result: { [key: string]: string } = {};
+
+    for (const cf of customFields) {
+        if (cf.type === 'dropdown' && cf.options && cf.options.length > 0) {
+            const picked = await vscode.window.showQuickPick(cf.options, {
+                placeHolder: `Select ${cf.label} (required)`,
+                title: cf.label
+            });
+            if (picked === undefined) { return undefined; }
+            result[cf.fieldReferenceName] = picked;
+        } else {
+            const value = await vscode.window.showInputBox({
+                prompt: `Enter ${cf.label} (required)`,
+                placeHolder: cf.label
+            });
+            if (value === undefined) { return undefined; }
+            result[cf.fieldReferenceName] = value;
+        }
+    }
+
+    return result;
+}
+
 function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: string, uniqueName: string, id: string}[] = []): string {
     const fields = workItem.fields;
     const tags = fields['System.Tags'] ? fields['System.Tags'].split('; ').filter((t: string) => t.trim()) : [];
     const currentState = fields['System.State'] || '';
     const wiType = (fields['System.WorkItemType'] || '').toLowerCase().replace(/\s+/g, '-');
+
+    // Build custom fields HTML for this work item type
+    const workItemType = fields['System.WorkItemType'] || '';
+    const customFields = getCustomFieldsForType(workItemType);
+    let customFieldsHtml = '';
+    if (customFields.length > 0) {
+        customFieldsHtml = `<div class="wi-fields-group" style="margin-top: 0;">`;
+        for (const cf of customFields) {
+            const cfValue = fields[cf.fieldReferenceName] || '';
+            const reqIndicator = cf.required ? ' <span style="color:#cc293d;">*</span>' : '';
+            if (cf.type === 'dropdown' && cf.options && cf.options.length > 0) {
+                const optionsHtml = cf.options.map(opt =>
+                    `<option value="${escapeHtml(opt)}"${opt === cfValue ? ' selected' : ''}>${escapeHtml(opt)}</option>`
+                ).join('');
+                customFieldsHtml += `<div class="field">
+                    <label>${escapeHtml(cf.label)}${reqIndicator}</label>
+                    <select class="custom-field" data-field="${escapeHtml(cf.fieldReferenceName)}">
+                        <option value="">-- Select --</option>
+                        ${optionsHtml}
+                    </select>
+                </div>`;
+            } else {
+                customFieldsHtml += `<div class="field">
+                    <label>${escapeHtml(cf.label)}${reqIndicator}</label>
+                    <input type="text" class="custom-field" data-field="${escapeHtml(cf.fieldReferenceName)}" value="${escapeHtml(cfValue)}" />
+                </div>`;
+            }
+        }
+        customFieldsHtml += `</div>`;
+    }
 
     return `<!DOCTYPE html>
     <html lang="en">
@@ -455,8 +596,8 @@ function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: st
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                flex: 1;
-                min-width: 100px;
+                flex-basis: 100%;
+                min-width: 0;
             }
             .tag-input-container input {
                 flex: 1;
@@ -840,6 +981,8 @@ function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: st
                 <input type="text" id="iterationPath" value="${escapeHtml(fields['System.IterationPath'] || '')}" />
             </div>
         </div>
+
+        ${customFieldsHtml}
 
         <div class="field-container view-mode" id="descriptionContainer">
             <label class="wi-section-label">
@@ -1379,17 +1522,24 @@ function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: st
                 const descriptionEditor = document.getElementById('descriptionEditor');
                 const acceptanceCriteriaEditor = document.getElementById('acceptanceCriteriaEditor');
 
+                const saveFields = {
+                    'System.Title': document.getElementById('title').value,
+                    'System.State': document.getElementById('state').value,
+                    'System.IterationPath': document.getElementById('iterationPath').value,
+                    'System.AssignedTo': document.getElementById('assignedTo').value,
+                    'System.Tags': currentTags.join('; '),
+                    'System.Description': descriptionEditor.innerHTML,
+                    'Microsoft.VSTS.Common.AcceptanceCriteria': acceptanceCriteriaEditor.innerHTML
+                };
+
+                // Include custom field values
+                document.querySelectorAll('.custom-field').forEach(function(el) {
+                    saveFields[el.dataset.field] = el.value;
+                });
+
                 vscode.postMessage({
                     command: 'save',
-                    fields: {
-                        'System.Title': document.getElementById('title').value,
-                        'System.State': document.getElementById('state').value,
-                        'System.IterationPath': document.getElementById('iterationPath').value,
-                        'System.AssignedTo': document.getElementById('assignedTo').value,
-                        'System.Tags': currentTags.join('; '),
-                        'System.Description': descriptionEditor.innerHTML,
-                        'Microsoft.VSTS.Common.AcceptanceCriteria': acceptanceCriteriaEditor.innerHTML
-                    }
+                    fields: saveFields
                 });
             });
 
@@ -1476,6 +1626,459 @@ function getTeamInfoHtml(teamName: string, members: any[], _nonce: string): stri
             <p>No team members found.</p>
             <p>This might mean the area path doesn't match an Azure DevOps team name.</p>
         </div>`}
+    </body>
+    </html>`;
+}
+
+interface CustomFieldConfig {
+    fieldReferenceName: string;
+    label: string;
+    type: 'string' | 'dropdown';
+    options?: string[];
+    required: boolean;
+    workItemTypes: string[];
+}
+
+function getCustomFieldsForType(workItemType: string): CustomFieldConfig[] {
+    const config = vscode.workspace.getConfiguration('adoBacklog');
+    const customFields = config.get<CustomFieldConfig[]>('customFields') || [];
+    return customFields.filter(f => f.workItemTypes.includes(workItemType));
+}
+
+function getManageCustomFieldsHtml(fields: CustomFieldConfig[], nonce: string): string {
+    return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+        <style>
+            *, *::before, *::after { box-sizing: border-box; }
+            body {
+                font-family: var(--vscode-font-family);
+                padding: 24px 32px;
+                max-width: 960px;
+                margin: 0 auto;
+                color: var(--vscode-foreground);
+            }
+            h2 { margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+            th, td {
+                text-align: left;
+                padding: 8px 10px;
+                border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
+                font-size: 13px;
+            }
+            th {
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                color: var(--vscode-descriptionForeground);
+            }
+            tr:hover { background: var(--vscode-list-hoverBackground); }
+            button {
+                padding: 6px 14px;
+                background: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            button:hover { background: var(--vscode-button-hoverBackground); }
+            button.danger { background: #cc293d; }
+            button.danger:hover { opacity: 0.85; }
+            button.secondary {
+                background: var(--vscode-button-secondaryBackground, #333);
+                color: var(--vscode-button-secondaryForeground, #fff);
+            }
+            .form-section {
+                padding: 16px;
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35));
+                border-radius: 4px;
+                margin-bottom: 16px;
+                display: none;
+            }
+            .form-section.visible { display: block; }
+            .form-row { margin-bottom: 12px; }
+            .form-row label {
+                display: block;
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                color: var(--vscode-descriptionForeground);
+                margin-bottom: 4px;
+            }
+            .form-row input, .form-row select {
+                width: 100%;
+                padding: 6px 10px;
+                border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35));
+                border-radius: 3px;
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 13px;
+            }
+            .checkbox-group { display: flex; flex-wrap: wrap; gap: 12px; }
+            .checkbox-group label {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                font-weight: normal;
+                font-size: 13px;
+                text-transform: none;
+                letter-spacing: 0;
+                color: var(--vscode-foreground);
+            }
+            .form-actions { display: flex; gap: 8px; margin-top: 16px; }
+            .empty-state {
+                text-align: center;
+                padding: 24px;
+                color: var(--vscode-descriptionForeground);
+            }
+        </style>
+    </head>
+    <body>
+        <h2>Custom Fields</h2>
+        <div id="tableContainer"></div>
+        <button id="addBtn">Add Field</button>
+
+        <div class="form-section" id="formSection">
+            <h3 id="formTitle">Add Custom Field</h3>
+            <input type="hidden" id="editIndex" value="-1" />
+            <div class="form-row">
+                <label>Field Reference Name</label>
+                <input type="text" id="fieldRef" placeholder="e.g., Custom.MyField" />
+            </div>
+            <div class="form-row">
+                <label>Display Label</label>
+                <input type="text" id="fieldLabel" placeholder="e.g., My Field" />
+            </div>
+            <div class="form-row">
+                <label>Type</label>
+                <select id="fieldType">
+                    <option value="string">String</option>
+                    <option value="dropdown">Dropdown</option>
+                </select>
+            </div>
+            <div class="form-row" id="optionsRow" style="display:none;">
+                <label>Options (comma-separated)</label>
+                <input type="text" id="fieldOptions" placeholder="e.g., Option1, Option2, Option3" />
+            </div>
+            <div class="form-row">
+                <label>Required</label>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" id="fieldRequired" /> Required during creation</label>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Work Item Types</label>
+                <div class="checkbox-group">
+                    <label><input type="checkbox" class="wiType" value="Epic" /> Epic</label>
+                    <label><input type="checkbox" class="wiType" value="Feature" /> Feature</label>
+                    <label><input type="checkbox" class="wiType" value="User Story" /> User Story</label>
+                    <label><input type="checkbox" class="wiType" value="Bug" /> Bug</label>
+                </div>
+            </div>
+            <div class="form-actions">
+                <button id="saveFieldBtn">Save</button>
+                <button id="cancelBtn" class="secondary">Cancel</button>
+            </div>
+        </div>
+
+        <script nonce="${nonce}">
+            const vscode = acquireVsCodeApi();
+            let fields = ${JSON.stringify(fields)};
+
+            function renderTable() {
+                const container = document.getElementById('tableContainer');
+                if (fields.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No custom fields configured. Click "Add Field" to get started.</div>';
+                    return;
+                }
+                let html = '<table><thead><tr><th>Reference Name</th><th>Label</th><th>Type</th><th>Work Item Types</th><th>Required</th><th>Actions</th></tr></thead><tbody>';
+                fields.forEach((f, i) => {
+                    html += '<tr>'
+                        + '<td>' + esc(f.fieldReferenceName) + '</td>'
+                        + '<td>' + esc(f.label) + '</td>'
+                        + '<td>' + esc(f.type) + '</td>'
+                        + '<td>' + esc((f.workItemTypes || []).join(', ')) + '</td>'
+                        + '<td>' + (f.required ? 'Yes' : 'No') + '</td>'
+                        + '<td><button class="edit-btn" data-index="' + i + '">Edit</button> <button class="danger delete-btn" data-index="' + i + '">Delete</button></td>'
+                        + '</tr>';
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+
+                container.querySelectorAll('.edit-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        editField(parseInt(btn.getAttribute('data-index'), 10));
+                    });
+                });
+                container.querySelectorAll('.delete-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        deleteField(parseInt(btn.getAttribute('data-index'), 10));
+                    });
+                });
+            }
+
+            function esc(s) {
+                const d = document.createElement('div');
+                d.textContent = s || '';
+                return d.innerHTML;
+            }
+
+            document.getElementById('addBtn').addEventListener('click', () => {
+                resetForm();
+                document.getElementById('formTitle').textContent = 'Add Custom Field';
+                document.getElementById('editIndex').value = '-1';
+                document.getElementById('formSection').classList.add('visible');
+            });
+
+            document.getElementById('cancelBtn').addEventListener('click', () => {
+                document.getElementById('formSection').classList.remove('visible');
+            });
+
+            document.getElementById('fieldType').addEventListener('change', () => {
+                document.getElementById('optionsRow').style.display =
+                    document.getElementById('fieldType').value === 'dropdown' ? 'block' : 'none';
+            });
+
+            document.getElementById('saveFieldBtn').addEventListener('click', () => {
+                const ref = document.getElementById('fieldRef').value.trim();
+                const label = document.getElementById('fieldLabel').value.trim();
+                const type = document.getElementById('fieldType').value;
+                const optionsStr = document.getElementById('fieldOptions').value.trim();
+                const required = document.getElementById('fieldRequired').checked;
+                const wiTypes = Array.from(document.querySelectorAll('.wiType:checked')).map(cb => cb.value);
+
+                if (!ref || !label || wiTypes.length === 0) {
+                    return;
+                }
+
+                const entry = {
+                    fieldReferenceName: ref,
+                    label: label,
+                    type: type,
+                    required: required,
+                    workItemTypes: wiTypes
+                };
+                if (type === 'dropdown' && optionsStr) {
+                    entry.options = optionsStr.split(',').map(o => o.trim()).filter(o => o);
+                }
+
+                const idx = parseInt(document.getElementById('editIndex').value, 10);
+                if (idx >= 0) {
+                    fields[idx] = entry;
+                } else {
+                    fields.push(entry);
+                }
+
+                vscode.postMessage({ command: 'saveFields', fields: fields });
+                document.getElementById('formSection').classList.remove('visible');
+                renderTable();
+            });
+
+            function editField(i) {
+                const f = fields[i];
+                document.getElementById('fieldRef').value = f.fieldReferenceName || '';
+                document.getElementById('fieldLabel').value = f.label || '';
+                document.getElementById('fieldType').value = f.type || 'string';
+                document.getElementById('fieldOptions').value = (f.options || []).join(', ');
+                document.getElementById('fieldRequired').checked = !!f.required;
+                document.querySelectorAll('.wiType').forEach(cb => {
+                    cb.checked = (f.workItemTypes || []).includes(cb.value);
+                });
+                document.getElementById('optionsRow').style.display = f.type === 'dropdown' ? 'block' : 'none';
+                document.getElementById('editIndex').value = String(i);
+                document.getElementById('formTitle').textContent = 'Edit Custom Field';
+                document.getElementById('formSection').classList.add('visible');
+            }
+
+            function deleteField(i) {
+                fields.splice(i, 1);
+                vscode.postMessage({ command: 'saveFields', fields: fields });
+                renderTable();
+            }
+
+            function resetForm() {
+                document.getElementById('fieldRef').value = '';
+                document.getElementById('fieldLabel').value = '';
+                document.getElementById('fieldType').value = 'string';
+                document.getElementById('fieldOptions').value = '';
+                document.getElementById('fieldRequired').checked = false;
+                document.querySelectorAll('.wiType').forEach(cb => { cb.checked = false; });
+                document.getElementById('optionsRow').style.display = 'none';
+            }
+
+            renderTable();
+        </script>
+    </body>
+    </html>`;
+}
+
+function getStateIndicatorsHtml(indicators: {state: string, indicator: string}[], nonce: string): string {
+    const availableIndicators = [
+        { value: '🔴', label: '🔴 Red' },
+        { value: '🟠', label: '🟠 Orange' },
+        { value: '🟡', label: '🟡 Yellow' },
+        { value: '🟢', label: '🟢 Green' },
+        { value: '🔵', label: '🔵 Blue' },
+        { value: '🟣', label: '🟣 Purple' },
+        { value: '🟤', label: '🟤 Brown' },
+        { value: '⚫', label: '⚫ Black' },
+        { value: '⚪', label: '⚪ White' },
+        { value: '○', label: '○ Hollow' }
+    ];
+
+    return `<!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
+        <style>
+            *, *::before, *::after { box-sizing: border-box; }
+            body {
+                font-family: var(--vscode-font-family);
+                padding: 24px 32px;
+                max-width: 600px;
+                margin: 0 auto;
+                color: var(--vscode-foreground);
+            }
+            h2 { margin-top: 0; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+            th, td {
+                text-align: left;
+                padding: 8px 10px;
+                border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
+                font-size: 13px;
+            }
+            th {
+                font-weight: 600;
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                color: var(--vscode-descriptionForeground);
+            }
+            button {
+                padding: 6px 14px;
+                background: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border: none;
+                border-radius: 3px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            button:hover { background: var(--vscode-button-hoverBackground); }
+            button.danger { background: #cc293d; }
+            button.danger:hover { opacity: 0.85; }
+            .add-row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+                margin-bottom: 16px;
+            }
+            input, select {
+                padding: 6px 10px;
+                border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35));
+                border-radius: 3px;
+                background: var(--vscode-input-background);
+                color: var(--vscode-input-foreground);
+                font-size: 13px;
+            }
+            input { flex: 1; }
+            select { min-width: 120px; }
+            .empty-state {
+                text-align: center;
+                padding: 24px;
+                color: var(--vscode-descriptionForeground);
+            }
+            .hint {
+                font-size: 12px;
+                color: var(--vscode-descriptionForeground);
+                margin-bottom: 16px;
+            }
+        </style>
+    </head>
+    <body>
+        <h2>State Indicators</h2>
+        <p class="hint">Add colored indicators that appear next to work items in the tree view. Use <code>*</code> as the state name for a fallback indicator.</p>
+
+        <div class="add-row">
+            <input type="text" id="newState" placeholder="State name (e.g., Active, Closed, *)" />
+            <select id="newIndicator">
+                ${availableIndicators.map(i => `<option value="${escapeHtml(i.value)}">${escapeHtml(i.label)}</option>`).join('')}
+            </select>
+            <button id="addBtn">Add</button>
+        </div>
+
+        <div id="tableContainer"></div>
+
+        <script nonce="${nonce}">
+            const vscode = acquireVsCodeApi();
+            let indicators = ${JSON.stringify(indicators)};
+
+            function esc(s) {
+                const d = document.createElement('div');
+                d.textContent = s || '';
+                return d.innerHTML;
+            }
+
+            function renderTable() {
+                const container = document.getElementById('tableContainer');
+                if (indicators.length === 0) {
+                    container.innerHTML = '<div class="empty-state">No state indicators configured.</div>';
+                    return;
+                }
+                let html = '<table><thead><tr><th>State</th><th>Indicator</th><th></th></tr></thead><tbody>';
+                indicators.forEach((ind, i) => {
+                    html += '<tr>'
+                        + '<td>' + esc(ind.state) + '</td>'
+                        + '<td style="font-size:18px;">' + esc(ind.indicator) + '</td>'
+                        + '<td><button class="danger remove-btn" data-index="' + i + '">Remove</button></td>'
+                        + '</tr>';
+                });
+                html += '</tbody></table>';
+                container.innerHTML = html;
+
+                container.querySelectorAll('.remove-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        const idx = parseInt(btn.getAttribute('data-index'), 10);
+                        indicators.splice(idx, 1);
+                        save();
+                        renderTable();
+                    });
+                });
+            }
+
+            document.getElementById('addBtn').addEventListener('click', () => {
+                const stateInput = document.getElementById('newState');
+                const indicatorSelect = document.getElementById('newIndicator');
+                const state = stateInput.value.trim();
+                if (!state) { return; }
+
+                // Replace existing entry for this state
+                indicators = indicators.filter(ind => ind.state !== state);
+                indicators.push({ state: state, indicator: indicatorSelect.value });
+
+                stateInput.value = '';
+                save();
+                renderTable();
+            });
+
+            document.getElementById('newState').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { document.getElementById('addBtn').click(); }
+            });
+
+            function save() {
+                vscode.postMessage({ command: 'saveIndicators', indicators: indicators });
+            }
+
+            renderTable();
+        </script>
     </body>
     </html>`;
 }

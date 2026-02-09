@@ -1,7 +1,7 @@
 {
   "name": "azure-devops-backlog-explorer",
   "displayName": "Azure DevOps Backlog Explorer",
-  "version": "0.1.0",
+  "version": "0.2.1",
   "description": "View and edit Azure DevOps backlog items in a hierarchical tree view",
   "publisher": "MLLANN01",
   "icon": "resources/icon.png",
@@ -108,6 +108,14 @@
       {
         "command": "adoBacklog.changeState",
         "title": "Change State"
+      },
+      {
+        "command": "adoBacklog.manageCustomFields",
+        "title": "ADO: Manage Custom Fields"
+      },
+      {
+        "command": "adoBacklog.configureStateIndicators",
+        "title": "ADO: Configure State Indicators"
       }
     ],
     "menus": {
@@ -216,6 +224,43 @@
           "type": "string",
           "default": "",
           "description": "Default iteration path for new work items (e.g., 'ProjectName\\Sprint 1')"
+        },
+        "adoBacklog.stateIndicators": {
+          "type": "array",
+          "default": [],
+          "description": "State indicators shown in the tree view next to work items. Use \"*\" as the state name for a fallback indicator.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "state": {
+                "type": "string",
+                "description": "Work item state name (e.g., Active, Closed) or \"*\" for fallback"
+              },
+              "indicator": {
+                "type": "string",
+                "enum": ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚫", "⚪", "○"],
+                "enumDescriptions": ["Red circle", "Orange circle", "Yellow circle", "Green circle", "Blue circle", "Purple circle", "Brown circle", "Black circle", "White circle", "Hollow circle"]
+              }
+            },
+            "required": ["state", "indicator"]
+          }
+        },
+        "adoBacklog.customFields": {
+          "type": "array",
+          "default": [],
+          "description": "Custom fields to display on work items, configured per work item type",
+          "items": {
+            "type": "object",
+            "properties": {
+              "fieldReferenceName": { "type": "string" },
+              "label": { "type": "string" },
+              "type": { "type": "string", "enum": ["string", "dropdown"] },
+              "options": { "type": "array", "items": { "type": "string" } },
+              "required": { "type": "boolean", "default": false },
+              "workItemTypes": { "type": "array", "items": { "type": "string" } }
+            },
+            "required": ["fieldReferenceName", "label", "type", "workItemTypes"]
+          }
         }
       }
     }

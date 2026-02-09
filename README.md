@@ -16,6 +16,8 @@ Browse, edit, and manage your Azure DevOps backlog without leaving VS Code.
 - **Drag and drop** — Reparent work items by dragging them between nodes in the tree
 - **Quick actions** — Change state, delete, or jump to the Azure DevOps web UI from the context menu
 - **Team info** — View team members for any configured area path
+- **Custom fields** — Define organization-specific fields that appear in work item detail panels and are prompted during creation when marked as required
+- **State indicators** — Configurable colored dot indicators next to work items in the tree view showing their current state at a glance
 
 ## Getting Started
 
@@ -57,8 +59,28 @@ Open **Settings** (`Cmd+,` / `Ctrl+,`) and search for **adoBacklog**, or add dir
 | `project` | Yes | Project name |
 | `areaPaths` | Yes | Area paths to show in the tree (backslash-separated) |
 | `defaultIterationPath` | No | Default iteration assigned to new work items |
+| `stateIndicators` | No | Colored indicators shown next to work items in the tree (configured via command) |
+| `customFields` | No | Custom fields displayed on work item detail panels (configured via command) |
 
 > All settings are prefixed with `adoBacklog.` (e.g. `adoBacklog.organizationUrl`).
+
+### State Indicators
+
+Add colored dots next to work items in the tree view to show their state at a glance.
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Run **ADO: Configure State Indicators**
+3. Enter a state name (e.g., `Active`, `Closed`) and pick an indicator from the dropdown
+4. Use `*` as the state name to set a fallback indicator for any unlisted states
+
+### Custom Fields
+
+Display and edit your organization's custom ADO fields on work item detail panels.
+
+1. Open the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`)
+2. Run **ADO: Manage Custom Fields**
+3. Add fields with their ADO reference name (e.g., `Custom.Priority`), display label, type (string or dropdown), and the work item types they apply to
+4. Fields marked as required will be prompted for during work item creation
 
 ### Usage
 
