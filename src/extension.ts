@@ -9,6 +9,9 @@ export function activate(context: vscode.ExtensionContext) {
     const adoService = new AdoService();
     const backlogProvider = new AdoBacklogProvider(adoService);
 
+    // Track open detail panels by work item ID
+    const openPanels = new Map<number, vscode.WebviewPanel>();
+
     // Eagerly warm the team members cache in the background
     adoService.getAllTeamMembers().catch(() => {});
 
@@ -19,7 +22,30 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('adoBacklog.refresh', () => {
-            backlogProvider.refresh();
+            adoService.clearCache();
+            backlogProvider.refreshImmediate();
+        })
+    );
+
+    // Refresh single work item and its children
+    context.subscriptions.push(
+        vscode.commands.registerCommand('adoBacklog.refreshItem', async (item) => {
+            if (item && item.workItem) {
+                const workItemId = item.workItem.id!;
+                adoService.invalidateWorkItemCache(workItemId);
+                backlogProvider.refreshImmediate(item);
+
+                // Refresh open detail panel if one exists for this work item
+                const panel = openPanels.get(workItemId);
+                if (panel) {
+                    const freshWorkItem = await adoService.getWorkItem(workItemId);
+                    if (freshWorkItem) {
+                        const nonce = crypto.randomBytes(16).toString('base64');
+                        const members = await adoService.getAllTeamMembers();
+                        panel.webview.html = getWorkItemHtml(freshWorkItem, nonce, members);
+                    }
+                }
+            }
         })
     );
 
@@ -151,6 +177,10 @@ export function activate(context: vscode.ExtensionContext) {
                         enableScripts: true
                     }
                 );
+
+                const workItemId = item.workItem.id!;
+                openPanels.set(workItemId, panel);
+                panel.onDidDispose(() => { openPanels.delete(workItemId); });
 
                 panel.webview.html = getWorkItemHtml(item.workItem, nonce, members);
 
@@ -388,6 +418,62 @@ export function activate(context: vscode.ExtensionContext) {
                         // Refresh the webview with updated data
                         const updated = vscode.workspace.getConfiguration('adoBacklog').get<CustomFieldConfig[]>('customFields') || [];
                         panel.webview.html = getManageCustomFieldsHtml(updated, crypto.randomBytes(16).toString('base64'));
+                    } else if (message.command === 'importFromAdo') {
+                        // Standard fields the extension already handles
+                        const standardFields = new Set([
+                            'System.Id', 'System.Title', 'System.State', 'System.Reason',
+                            'System.WorkItemType', 'System.AreaPath', 'System.IterationPath',
+                            'System.AssignedTo', 'System.Tags', 'System.Description',
+                            'System.CreatedBy', 'System.CreatedDate', 'System.ChangedBy',
+                            'System.ChangedDate', 'System.TeamProject', 'System.Rev',
+                            'System.BoardColumn', 'System.BoardColumnDone',
+                            'Microsoft.VSTS.Common.AcceptanceCriteria',
+                            'Microsoft.VSTS.Common.StateChangeDate',
+                            'Microsoft.VSTS.Common.ActivatedDate',
+                            'Microsoft.VSTS.Common.ActivatedBy',
+                            'Microsoft.VSTS.Common.ResolvedDate',
+                            'Microsoft.VSTS.Common.ResolvedBy',
+                            'Microsoft.VSTS.Common.ResolvedReason',
+                            'Microsoft.VSTS.Common.ClosedDate',
+                            'Microsoft.VSTS.Common.ClosedBy',
+                            'Microsoft.VSTS.Common.Priority',
+                            'Microsoft.VSTS.Common.ValueArea'
+                        ]);
+                        const wiTypes = ['Epic', 'Feature', 'User Story', 'Bug'];
+                        const discovered: {referenceName: string; name: string; allowedValues: string[]; workItemTypes: string[]; alwaysRequired: boolean}[] = [];
+                        const seen = new Map<string, typeof discovered[0]>();
+
+                        for (const wit of wiTypes) {
+                            try {
+                                const fields = await adoService.getWorkItemTypeFields(wit);
+                                for (const f of fields) {
+                                    if (standardFields.has(f.referenceName)) { continue; }
+                                    if (seen.has(f.referenceName)) {
+                                        seen.get(f.referenceName)!.workItemTypes.push(wit);
+                                        if (f.alwaysRequired) {
+                                            seen.get(f.referenceName)!.alwaysRequired = true;
+                                        }
+                                    } else {
+                                        const entry = {
+                                            referenceName: f.referenceName,
+                                            name: f.name,
+                                            allowedValues: f.allowedValues,
+                                            workItemTypes: [wit],
+                                            alwaysRequired: f.alwaysRequired
+                                        };
+                                        seen.set(f.referenceName, entry);
+                                        discovered.push(entry);
+                                    }
+                                }
+                            } catch (err) {
+                                // skip types that fail
+                            }
+                        }
+
+                        panel.webview.postMessage({
+                            command: 'importResults',
+                            discovered: discovered
+                        });
                     }
                 },
                 undefined,
@@ -979,7 +1065,11 @@ function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: st
             <div class="field">
                 <label>Iteration Path</label>
                 <input type="text" id="iterationPath" value="${escapeHtml(fields['System.IterationPath'] || '')}" />
-            </div>
+            </div>${workItemType === 'User Story' ? `
+            <div class="field">
+                <label>Story Points</label>
+                <input type="number" id="storyPoints" value="${fields['Microsoft.VSTS.Scheduling.StoryPoints'] ?? ''}" min="0" step="0.5" />
+            </div>` : ''}
         </div>
 
         ${customFieldsHtml}
@@ -1532,6 +1622,13 @@ function getWorkItemHtml(workItem: any, nonce: string, members: {displayName: st
                     'Microsoft.VSTS.Common.AcceptanceCriteria': acceptanceCriteriaEditor.innerHTML
                 };
 
+                // Include story points if present
+                const storyPointsEl = document.getElementById('storyPoints');
+                if (storyPointsEl) {
+                    const val = storyPointsEl.value;
+                    saveFields['Microsoft.VSTS.Scheduling.StoryPoints'] = val === '' ? null : parseFloat(val);
+                }
+
                 // Include custom field values
                 document.querySelectorAll('.custom-field').forEach(function(el) {
                     saveFields[el.dataset.field] = el.value;
@@ -1738,12 +1835,62 @@ function getManageCustomFieldsHtml(fields: CustomFieldConfig[], nonce: string): 
                 padding: 24px;
                 color: var(--vscode-descriptionForeground);
             }
+            .btn-row { display: flex; gap: 8px; margin-bottom: 16px; }
+            .import-section {
+                padding: 16px;
+                background: var(--vscode-editor-background);
+                border: 1px solid var(--vscode-input-border, rgba(127,127,127,0.35));
+                border-radius: 4px;
+                margin-bottom: 16px;
+                display: none;
+            }
+            .import-section.visible { display: block; }
+            .import-item {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 6px 0;
+                border-bottom: 1px solid var(--vscode-panel-border, rgba(127,127,127,0.2));
+                font-size: 13px;
+            }
+            .import-item label {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-weight: normal;
+                font-size: 13px;
+                text-transform: none;
+                letter-spacing: 0;
+                color: var(--vscode-foreground);
+                cursor: pointer;
+                flex: 1;
+            }
+            .import-item .import-detail {
+                color: var(--vscode-descriptionForeground);
+                font-size: 12px;
+            }
+            .import-actions { display: flex; gap: 8px; margin-top: 12px; }
+            .spinner { display: none; color: var(--vscode-descriptionForeground); font-size: 13px; padding: 8px 0; }
+            .spinner.visible { display: block; }
         </style>
     </head>
     <body>
         <h2>Custom Fields</h2>
         <div id="tableContainer"></div>
-        <button id="addBtn">Add Field</button>
+        <div class="btn-row">
+            <button id="addBtn">Add Field</button>
+            <button id="importBtn" class="secondary">Import from ADO</button>
+        </div>
+        <div class="spinner" id="importSpinner">Loading fields from Azure DevOps...</div>
+        <div class="import-section" id="importSection">
+            <h3>Fields from Azure DevOps</h3>
+            <p style="font-size:12px;color:var(--vscode-descriptionForeground);margin-top:0;">Select fields to import. Fields already configured are excluded.</p>
+            <div id="importList"></div>
+            <div class="import-actions">
+                <button id="importSelectedBtn">Import Selected</button>
+                <button id="importCancelBtn" class="secondary">Cancel</button>
+            </div>
+        </div>
 
         <div class="form-section" id="formSection">
             <h3 id="formTitle">Add Custom Field</h3>
@@ -1914,6 +2061,82 @@ function getManageCustomFieldsHtml(fields: CustomFieldConfig[], nonce: string): 
             }
 
             renderTable();
+
+            // --- Import from ADO ---
+            let discoveredFields = [];
+
+            document.getElementById('importBtn').addEventListener('click', () => {
+                document.getElementById('importSpinner').classList.add('visible');
+                document.getElementById('importSection').classList.remove('visible');
+                vscode.postMessage({ command: 'importFromAdo' });
+            });
+
+            document.getElementById('importCancelBtn').addEventListener('click', () => {
+                document.getElementById('importSection').classList.remove('visible');
+            });
+
+            document.getElementById('importSelectedBtn').addEventListener('click', () => {
+                const checkboxes = document.querySelectorAll('.import-cb:checked');
+                checkboxes.forEach(function(cb) {
+                    const idx = parseInt(cb.getAttribute('data-index'), 10);
+                    const f = discoveredFields[idx];
+                    if (!f) { return; }
+                    const hasOptions = f.allowedValues && f.allowedValues.length > 0;
+                    const entry = {
+                        fieldReferenceName: f.referenceName,
+                        label: f.name,
+                        type: hasOptions ? 'dropdown' : 'string',
+                        required: f.alwaysRequired,
+                        workItemTypes: f.workItemTypes
+                    };
+                    if (hasOptions) {
+                        entry.options = f.allowedValues;
+                    }
+                    fields.push(entry);
+                });
+                if (checkboxes.length > 0) {
+                    vscode.postMessage({ command: 'saveFields', fields: fields });
+                    renderTable();
+                }
+                document.getElementById('importSection').classList.remove('visible');
+            });
+
+            window.addEventListener('message', function(event) {
+                const message = event.data;
+                if (message.command === 'importResults') {
+                    document.getElementById('importSpinner').classList.remove('visible');
+                    discoveredFields = message.discovered;
+
+                    // Filter out fields already configured
+                    const existingRefs = new Set(fields.map(f => f.fieldReferenceName));
+                    const available = discoveredFields.filter(f => !existingRefs.has(f.referenceName));
+
+                    const list = document.getElementById('importList');
+                    if (available.length === 0) {
+                        list.innerHTML = '<div class="empty-state">No new fields found. All discovered fields are already configured.</div>';
+                        document.getElementById('importSelectedBtn').style.display = 'none';
+                    } else {
+                        document.getElementById('importSelectedBtn').style.display = '';
+                        // Rebuild discoveredFields to match filtered indices
+                        discoveredFields = available;
+                        let html = '';
+                        available.forEach(function(f, i) {
+                            const detail = [];
+                            if (f.alwaysRequired) { detail.push('Required'); }
+                            if (f.allowedValues && f.allowedValues.length > 0) { detail.push(f.allowedValues.length + ' options'); }
+                            detail.push(f.workItemTypes.join(', '));
+                            html += '<div class="import-item">'
+                                + '<label><input type="checkbox" class="import-cb" data-index="' + i + '" '
+                                + (f.alwaysRequired ? 'checked' : '') + ' /> '
+                                + esc(f.name) + ' <code>' + esc(f.referenceName) + '</code></label>'
+                                + '<span class="import-detail">' + esc(detail.join(' | ')) + '</span>'
+                                + '</div>';
+                        });
+                        list.innerHTML = html;
+                    }
+                    document.getElementById('importSection').classList.add('visible');
+                }
+            });
         </script>
     </body>
     </html>`;

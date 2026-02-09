@@ -14,6 +14,13 @@ class BacklogItem extends vscode.TreeItem {
     ) {
         super(label, collapsibleState);
 
+        // Stable ID so VS Code can match elements across refreshes
+        if (workItem) {
+            this.id = `wi_${workItem.id}`;
+        } else if (type === 'team' && teamName) {
+            this.id = `team_${teamName}`;
+        }
+
         this.tooltip = workItem ? `ID: ${workItem.id} - ${workItem.fields!['System.State']}` : label;
 
         if (workItem) {

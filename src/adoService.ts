@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as azdev from 'azure-devops-node-api';
-import { WorkItem } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
+import { WorkItem, WorkItemExpand } from 'azure-devops-node-api/interfaces/WorkItemTrackingInterfaces';
 import { TeamContext } from 'azure-devops-node-api/interfaces/CoreInterfaces';
 
 export class AdoService {
@@ -87,6 +87,21 @@ export class AdoService {
         return Array.from(names);
     }
 
+    async getWorkItem(id: number): Promise<WorkItem | null> {
+        if (!this.connection) { return null; }
+        const witApi = await this.connection.getWorkItemTrackingApi();
+        const fields = [
+            'System.Id', 'System.Title', 'System.State',
+            'System.WorkItemType',
+            'System.AreaPath', 'System.IterationPath', 'System.AssignedTo',
+            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria',
+            'Microsoft.VSTS.Scheduling.StoryPoints',
+            ...this.getCustomFieldNames()
+        ];
+        const workItem = await witApi.getWorkItem(id, fields);
+        return workItem || null;
+    }
+
     async getEpicsForTeam(
         areaPathName: string,
         filters?: {
@@ -159,7 +174,7 @@ export class AdoService {
             'System.Id', 'System.Title', 'System.State',
             'System.WorkItemType',
             'System.AreaPath', 'System.IterationPath', 'System.AssignedTo',
-            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria',
+            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria', 'Microsoft.VSTS.Scheduling.StoryPoints',
             ...this.getCustomFieldNames()
         ];
         const workItems = await witApi.getWorkItems(ids, fields, undefined, undefined);
@@ -252,7 +267,7 @@ export class AdoService {
             'System.Id', 'System.Title', 'System.State',
             'System.WorkItemType',
             'System.AreaPath', 'System.IterationPath', 'System.AssignedTo',
-            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria',
+            'System.Tags', 'System.Description', 'Microsoft.VSTS.Common.AcceptanceCriteria', 'Microsoft.VSTS.Scheduling.StoryPoints',
             ...this.getCustomFieldNames()
         ];
         const workItems = await witApi.getWorkItems(childIds, fields, undefined, undefined);
@@ -323,6 +338,38 @@ export class AdoService {
         return fallbackStates;
     }
 
+    async getWorkItemTypeFields(workItemType: string): Promise<{
+        referenceName: string;
+        name: string;
+        alwaysRequired: boolean;
+        allowedValues: string[];
+    }[]> {
+        if (!this.connection) { return []; }
+
+        const cacheKey = `witFields_${workItemType}`;
+        const cached = this.getCached<any[]>(cacheKey);
+        if (cached) { return cached; }
+
+        try {
+            const witApi = await this.connection.getWorkItemTrackingApi();
+            // Expand AllowedValues (1) to include allowed values for each field
+            const fieldInstances = await witApi.getWorkItemTypeFieldsWithReferences(
+                this.config.project, workItemType, 1
+            );
+            const result = (fieldInstances || []).map((f: any) => ({
+                referenceName: f.referenceName || '',
+                name: f.name || '',
+                alwaysRequired: !!f.alwaysRequired,
+                allowedValues: f.allowedValues || []
+            }));
+            this.setCache(cacheKey, result);
+            return result;
+        } catch (error) {
+            console.error(`Error fetching fields for ${workItemType}:`, error);
+            return [];
+        }
+    }
+
     private async preFetchChildren(parentIds: number[]): Promise<void> {
         // Pre-fetch children in background (don't await)
         setTimeout(async () => {
@@ -340,7 +387,7 @@ export class AdoService {
         const witApi = await this.connection.getWorkItemTrackingApi();
 
         const patchDocument = Object.keys(fields).map(fieldName => ({
-            op: 'add',
+            op: fieldName === 'System.Tags' ? 'replace' : 'add',
             path: `/fields/${fieldName}`,
             value: fields[fieldName]
         }));
@@ -367,7 +414,7 @@ export class AdoService {
         this.invalidateWorkItemCache(workItemId);
     }
 
-    private invalidateWorkItemCache(workItemId: number): void {
+    invalidateWorkItemCache(workItemId: number): void {
         // Remove specific work item cache and its children
         this.cache.delete(`children_${workItemId}`);
 
@@ -428,8 +475,8 @@ export class AdoService {
 
         const witApi = await this.connection.getWorkItemTrackingApi();
 
-        // Get current work item to find parent link
-        const workItem = await witApi.getWorkItem(workItemId, undefined, undefined, undefined);
+        // Get current work item with relations to find parent link
+        const workItem = await witApi.getWorkItem(workItemId, undefined, undefined, WorkItemExpand.Relations);
 
         if (workItem.relations) {
             const parentRelation = workItem.relations.find(rel =>
