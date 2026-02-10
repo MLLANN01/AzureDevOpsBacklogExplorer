@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2026-02-10
+
+### Fixed
+- **Save failing silently** — Saving work items with null field values (e.g., empty Story Points) caused ADO to reject the entire update with no visible error. Save handler now catches errors and displays them to the user.
+- **Clearing field values** — Clearing a field like Story Points now properly removes the value in ADO using a `remove` patch operation, instead of being silently skipped.
+
 ## [0.3.0] - 2026-02-09
 
 ### Added

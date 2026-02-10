@@ -1,7 +1,7 @@
 {
   "name": "azure-devops-backlog-explorer",
   "displayName": "Azure DevOps Backlog Explorer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "View and edit Azure DevOps backlog items in a hierarchical tree view",
   "publisher": "MLLANN01",
   "icon": "resources/icon.png",

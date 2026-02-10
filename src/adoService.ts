@@ -386,11 +386,23 @@ export class AdoService {
 
         const witApi = await this.connection.getWorkItemTrackingApi();
 
-        const patchDocument = Object.keys(fields).map(fieldName => ({
-            op: fieldName === 'System.Tags' ? 'replace' : 'add',
-            path: `/fields/${fieldName}`,
-            value: fields[fieldName]
-        }));
+        const patchDocument: any[] = [];
+        for (const fieldName of Object.keys(fields)) {
+            const value = fields[fieldName];
+            if (value === null || value === undefined) {
+                // Use remove to clear the field value in ADO
+                patchDocument.push({
+                    op: 'remove',
+                    path: `/fields/${fieldName}`
+                });
+            } else {
+                patchDocument.push({
+                    op: fieldName === 'System.Tags' ? 'replace' : 'add',
+                    path: `/fields/${fieldName}`,
+                    value: value
+                });
+            }
+        }
 
         await witApi.updateWorkItem(
             undefined,

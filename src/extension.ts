@@ -199,9 +199,13 @@ export function activate(context: vscode.ExtensionContext) {
                                 });
                                 return;
                             case 'save':
-                                await adoService.updateWorkItem(item.workItem.id!, message.fields);
-                                backlogProvider.refreshImmediate();
-                                vscode.window.showInformationMessage(`Work Item #${item.workItem.id} updated successfully!`);
+                                try {
+                                    await adoService.updateWorkItem(item.workItem.id!, message.fields);
+                                    backlogProvider.refreshImmediate();
+                                    vscode.window.showInformationMessage(`Work Item #${item.workItem.id} updated successfully!`);
+                                } catch (error: any) {
+                                    vscode.window.showErrorMessage(`Failed to save work item: ${error.message}`);
+                                }
                                 return;
                             case 'delete':
                                 const confirmDelete = await vscode.window.showWarningMessage(
